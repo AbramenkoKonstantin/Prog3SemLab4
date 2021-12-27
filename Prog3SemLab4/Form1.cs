@@ -11,102 +11,140 @@ using Google.Apis.Sheets.v4.Data;
 using Google.Apis.Services;
 using Google.Apis.Util.Store;
 using System.Threading;
+using System.Reflection;
 
 namespace Prog3SemLab4
 {
     public partial class Form1 : Form
     {
-        static string[] Scopes = { SheetsService.Scope.SpreadsheetsReadonly };
-        static string ApplicationName = "Google Sheets API .NET Quickstart";
-
         public Form1()
         {
             InitializeComponent();
         }
 
-        async private void StartBtnClick(object sender, EventArgs e)
+        async private void LaunchButton_Click(object sender, EventArgs e)
         {
             try
             {
-                int[] array = new int[dataGridView.RowCount];
-                for (int index = 0; index < dataGridView.RowCount; ++index)
+                List<System.Windows.Forms.GroupBox> sortBoxes = Controls.OfType<System.Windows.Forms.GroupBox>().ToList();
+                sortBoxes.Reverse();
+
+                double[] array = new double[arrayGrid.Rows.Count - 1];
+                for (int index = 0; index < arrayGrid.Rows.Count - 1; ++index)
                 {
-                    array[index] = int.Parse(dataGridView[0, index].Value.ToString());
+                    if (!Double.TryParse(arrayGrid.Rows[index].Cells[0].Value.ToString(), out array[index]))
+                    {
+                        MessageBox.Show("Некорректное значение в ячейке таблицы.");
+                        return;
+                    }
                 }
 
-                if (sortChoose.CheckedItems.Contains(sortChoose.Items[0]))
+                bool isSorted = false;
+
+                foreach (System.Windows.Forms.GroupBox sort in sortBoxes)
                 {
-                    await Task.Run(() => BubbleSort.Sort(array));
+                    if (IsSortChoosed(sort))
+                    {
+                        isSorted = true;
+                        var chart = GetSortChart(sort);
+                        var method = GetSortMethod(sort);
+                        array = ArrayRead();
+
+                        object[] parametrs = (method.Name == "QuickSort") ?
+                            new object[] { array, IsSortIncreasing(), -1, -1 } :
+                            new object[] { array, IsSortIncreasing() };
+
+                        await Task.Run(() =>
+                        {
+                            object time = method.Invoke(this, parametrs);
+                            System.Windows.Forms.TextBox timeResultBox = sort.Controls.OfType<System.Windows.Forms.TextBox>().Single();
+                            Invoke((System.Action)(() => SortDraw(chart, array)));
+                            Invoke((System.Action)(() => timeResultBox.Text = time.ToString()));
+                        });
+
+                    }
                 }
-                if (sortChoose.CheckedItems.Contains(sortChoose.Items[1]))
+                if (!isSorted)
                 {
-                    await Task.Run(() => InsertionSort.Sort(array));
-                }
-                if (sortChoose.CheckedItems.Contains(sortChoose.Items[2]))
-                {
-                    await Task.Run(() => ShakerSort.Sort(array));
-                }
-                if (sortChoose.CheckedItems.Contains(sortChoose.Items[3]))
-                {
-                    await Task.Run(() => QuickSort.Sort(array));
-                }
-                if (sortChoose.CheckedItems.Contains(sortChoose.Items[4]))
-                {
-                    await Task.Run(() => BogoSort.Sort(array));
+                    MessageBox.Show("Не выбрано ни одной сортировки.");
+                    return;
                 }
             }
-            catch
-            {
 
+            catch (NullReferenceException)
+            {
+                MessageBox.Show("Пустое значение ячейки.");
             }
         }
+
+
+        private double[] ArrayRead()
+        {
+            double[] array = new double[arrayGrid.Rows.Count - 1];
+            for (int index = 0; index < arrayGrid.Rows.Count - 1; ++index)
+            {
+                Double.TryParse(arrayGrid.Rows[index].Cells[0].Value.ToString(), out array[index]);
+            }
+            return array;
+        }
+
+
+        private void SortDraw(System.Windows.Forms.DataVisualization.Charting.Chart chart, double[] array)
+        {
+            chart.Series[0].Points.Clear();
+            for (int index = 0; index < array.Length; ++index)
+            {
+                chart.Series[0].Points.AddXY(index, array[index]);
+            }
+        }
+
+
+        private System.Windows.Forms.DataVisualization.Charting.Chart GetSortChart(Control control)
+        {
+            var chart = control.Controls.OfType<System.Windows.Forms.DataVisualization.Charting.Chart>().Single();
+            return chart;
+        }
+
+
+        private bool IsSortChoosed(System.Windows.Forms.GroupBox groupBox)
+        {
+            System.Windows.Forms.CheckBox checkBox = groupBox.Controls.OfType<System.Windows.Forms.CheckBox>().Single();
+            if (checkBox.Checked)
+            {
+                return true;
+            }
+            return false;
+        }
+
+
+        private bool IsSortIncreasing()
+        {
+            var sortingChoosed = Controls.OfType<RadioButton>().Where(button => button.Checked == true).Single();
+            if (sortingChoosed.Name.Contains("increasing"))
+            {
+                return true;
+            }
+            return false;
+        }
+
+
+        private MethodInfo GetSortMethod(Control control)
+        {
+            System.Windows.Forms.CheckBox checkBox = control.Controls.OfType<System.Windows.Forms.CheckBox>().Single();
+            Type sortingClass = Type.GetType("Prog3SemLab4.Sortings");
+            return sortingClass.GetMethod(checkBox.Tag.ToString());
+        }
+
 
         private void CloseBtnClick(object sender, EventArgs e)
         {
             this.Close();
         }
+        
 
-        private void GoogleSheetsItemClick(object sender, EventArgs e)
+        private void ExcelImport_Click(object sender, EventArgs e)
         {
-            UserCredential credential;
-
-            using (var stream = new FileStream("credentials.json", FileMode.Open, FileAccess.Read))
-            {
-                string credPath = "token.json";
-                credential = GoogleWebAuthorizationBroker.AuthorizeAsync(GoogleClientSecrets.FromStream(stream).Secrets, Scopes, "user", CancellationToken.None, new FileDataStore(credPath, true)).Result;
-                Console.WriteLine("Credential file saved to: " + credPath);
-            }
-
-            var service = new SheetsService(new BaseClientService.Initializer()
-            {
-                HttpClientInitializer = credential,
-                ApplicationName = ApplicationName,
-            });
-
-            String spreadsheetId = "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms";
-            String range = "Class Data!A2:E";
-            SpreadsheetsResource.ValuesResource.GetRequest request = service.Spreadsheets.Values.Get(spreadsheetId, range);
-
-            // https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit
-            ValueRange response = request.Execute();
-            IList<IList<Object>> values = response.Values;
-            if (values != null && values.Count > 0)
-            {
-                Console.WriteLine("Name, Major");
-                foreach (var row in values)
-                {
-                    Console.WriteLine("{0}, {1}", row[0], row[4]);
-                }
-            }
-            else
-            {
-                Console.WriteLine("No data found.");
-            }
-            Console.Read();
-        }
-
-        private void ExcelClick(object sender, EventArgs e)
-        {
+            arrayGrid.Rows.Clear();
             using (OpenFileDialog excelFile = new OpenFileDialog())
             {
                 DialogResult result = excelFile.ShowDialog();
@@ -116,20 +154,21 @@ namespace Prog3SemLab4
                     Workbook objWorkBook = objExcel.Workbooks.Open(excelFile.FileName);
                     Worksheet objWorkSheet = (Worksheet)objWorkBook.Sheets[1];
 
-                    Range xRange = objWorkSheet.UsedRange.Columns[1];
-                    Range yRange = objWorkSheet.UsedRange.Columns[2];
-
-                    Array xCells = (Array)xRange.Cells.Value2;
-                    Array yCells = (Array)yRange.Cells.Value2;
-
-                    string[] xColumn = xCells.OfType<object>().Select(o => o.ToString()).ToArray();
-                    string[] yColumn = yCells.OfType<object>().Select(o => o.ToString()).ToArray();
-
-                    for (int index = 0; index < xRange.Cells.Count; ++index)
+                    try
                     {
-                        dataGridView.Rows.Add();
-                        dataGridView.Rows[index].Cells[0].Value = xColumn[index];
-                        dataGridView.Rows[index].Cells[1].Value = yColumn[index];
+                        Range range = objWorkSheet.UsedRange.Rows[1];
+                        Array values = (Array)range.Cells.Value2;
+                        string[] array = values.OfType<object>().Select(o => o.ToString()).ToArray();
+
+                        arrayGrid.Rows.Add(array.Length);
+                        for (int index = 0; index < array.Length; ++index)
+                        {
+                            arrayGrid.Rows[index].Cells[0].Value = array[index];
+                        }
+                    }
+                    catch
+                    {
+                        MessageBox.Show("Ошибка чтения.");
                     }
 
                     objWorkBook.Close();
@@ -137,9 +176,118 @@ namespace Prog3SemLab4
                 }
                 else if (result == DialogResult.OK)
                 {
-                    MessageBox.Show("Ошибка!", "Неверное расширение файла.");
+                    MessageBox.Show("Неверное расширение файла.");
                 }
             }
+        }
+
+
+        private async Task ReadAsync(SpreadsheetsResource.ValuesResource valuesResource, string SpreadsheetId, string ReadRange)
+        {
+            try
+            {
+                ValueRange response = await valuesResource.Get(SpreadsheetId, ReadRange).ExecuteAsync();
+                var values = response.Values;
+                for (int index = 0; index < values.Count; ++index)
+                {
+                    arrayGrid.Rows.Add();
+                    arrayGrid.Rows[index].Cells[0].Value = values[0][index];
+                }
+            }
+            catch
+            {
+                MessageBox.Show("Некорректная ссылка или доступ к таблице не открыт.");
+            }
+        }
+
+
+        private void ArrayGeneration_Click(object sender, EventArgs e)
+        {
+            arrayGrid.Rows.Clear();
+            try
+            {
+                Random randomizer = new Random();
+                int.TryParse(randomCount.Text, out int rowCount);
+                if (rowCount <= 1)
+                {
+                    MessageBox.Show("Количество генерации не может быть меньше 2");
+                    return;
+                }
+                double[] array = new double[rowCount];
+
+                arrayGrid.Rows.Add(rowCount);
+
+                array[0] = DoubleRandom(randomizer);
+                for (int index = 1; index < rowCount; ++index)
+                {
+                    double prevNumber = array[index - 1];
+                    array[index] = Modulate(prevNumber, randomizer);
+                }
+
+                foreach (DataGridViewRow row in arrayGrid.Rows)
+                {
+                    row.Cells[0].Value = array[row.Index];
+                }
+            }
+
+            catch
+            {
+
+            }
+
+        }
+
+
+        private double DoubleRandom(Random randomizer, int lowerBorder = -100, int upperBorder = 100)
+        {
+            return Math.Round(randomizer.NextDouble() * randomizer.Next(lowerBorder, upperBorder), 3);
+        }
+
+
+        private double Modulate(double value, Random randomizer)
+        {
+            return Math.Round(value + randomizer.Next(-10, 10) * randomizer.NextDouble(), 3);
+        }
+
+
+        private void FormClearButton_Click(object sender, EventArgs e)
+        {
+            foreach (Control control in Controls)
+            {
+                if (control is System.Windows.Forms.TextBox)
+                {
+                    control.Text = String.Empty;
+                }
+                if (control is System.Windows.Forms.GroupBox)
+                {
+                    var groupBox = control as System.Windows.Forms.GroupBox;
+                    foreach (Control boxControl in groupBox.Controls)
+                    {
+                        if (boxControl is System.Windows.Forms.TextBox)
+                        {
+                            boxControl.Text = String.Empty;
+                        }
+                        if (boxControl is System.Windows.Forms.DataVisualization.Charting.Chart)
+                        {
+                            var chart = boxControl as System.Windows.Forms.DataVisualization.Charting.Chart;
+                            chart.Series[0].Points.Clear();
+                        }
+                        if (boxControl is RadioButton)
+                        {
+                            var button = boxControl as RadioButton;
+                            button.Checked = false;
+                            button.Enabled = false;
+                        }
+                        if (boxControl is System.Windows.Forms.CheckBox)
+                        {
+                            var checkBox = boxControl as System.Windows.Forms.CheckBox;
+                            checkBox.Checked = false;
+                        }
+                    }
+                }
+
+            }
+            arrayGrid.Rows.Clear();
         }
     }
 }
